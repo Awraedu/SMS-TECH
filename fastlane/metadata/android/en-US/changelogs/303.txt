@@ -1,0 +1,5 @@
+Maintenance release: nothing changes in how the app works.
+
+The app no longer requests BROADCAST_WAP_PUSH. Android grants it only to the system, so the request did nothing; receiving MMS is unaffected.
+
+New store screenshots, in all five languages.
