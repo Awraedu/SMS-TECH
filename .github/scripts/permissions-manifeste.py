@@ -269,22 +269,33 @@ def controle_negatif() -> int:
         return chemin
 
     conforme = sorted(AUTORISEES)
+    # (nom, permissions, code attendu, ce que le refus doit nommer)
     cas = [
-        ("conforme", conforme, 0),
-        ("INTERNET ajoutee", conforme + ["android.permission.INTERNET"], 1),
-        ("permission inconnue", conforme + ["android.permission.READ_CALL_LOG"], 1),
-        ("manifeste vide", [], 1),
+        ("conforme", conforme, 0, ()),
+        ("INTERNET ajoutee", conforme + ["android.permission.INTERNET"], 1,
+         ("Permission RESEAU", "android.permission.INTERNET")),
+        ("permission inconnue", conforme + ["android.permission.READ_CALL_LOG"], 1,
+         ("hors de la liste revue", "android.permission.READ_CALL_LOG")),
+        ("manifeste vide", [], 1, ("aucune permission lue",)),
     ]
     echecs = 0
-    for nom, permissions, attendu in cas:
+    for nom, permissions, attendu, causes in cas:
         chemin = manifeste(permissions)
+        # La sortie des cas fautifs est CAPTUREE, comme pour les cas lint plus bas. Imprimes, leurs
+        # `::error::` devenaient des annotations rouges sur un run VERT : le 2026-10-15, sept
+        # « errors » affichees par GitHub ont ete prises pour un echec de la CI. Capturer permet
+        # aussi d'exiger la bonne cause : un refus pour une autre raison n'est pas un refus.
+        sortie = io.StringIO()
         try:
-            obtenu = verifier(chemin, bavard=False)
+            with contextlib.redirect_stdout(sortie):
+                obtenu = verifier(chemin, bavard=False)
         finally:
             os.unlink(chemin)
-        ok = obtenu == attendu
+        ok = obtenu == attendu and all(c in sortie.getvalue() for c in causes)
         echecs += 0 if ok else 1
         print(f"  {'OK   ' if ok else 'RATE '} {nom} : attendu {attendu}, obtenu {obtenu}")
+        if obtenu == attendu and not ok:
+            print(f"        rougit, mais sans nommer {' + '.join(causes)} :\n        {sortie.getvalue().strip()}")
 
     def source(corps: str) -> str:
         fd, chemin = tempfile.mkstemp(suffix=".xml")
