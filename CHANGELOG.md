@@ -3,6 +3,25 @@
 All notable changes to SMS Tech will be documented in this file.
 Format follows [Keep a Changelog](https://keepachangelog.com/), versions follow [SemVer](https://semver.org).
 
+## [1.28.14] — 2026-10-16
+
+Asked for by the F-Droid review (fdroid/fdroiddata!38458). F-Droid reads the store listing from the
+commit it builds, so the fixes merged after 1.28.13 needed a release to reach it. Nothing changes in
+how the app works.
+
+### Changed
+- **No more request for `BROADCAST_WAP_PUSH`.** It is a `signature|privileged` permission: Android
+  grants it only to the system, so a user-installed app asking for it got nothing (measured on a
+  Galaxy S9: requested, never granted). The incoming-MMS receiver still requires it of its *sender*
+  through `android:permission`, which is what keeps other apps from posing as the system; MMS
+  reception was checked after the change. A CI check now refuses any unreviewed `ProtectedPermissions`
+  lint exception, so that warning cannot be silenced again without anyone noticing.
+- **Store changelogs fit F-Droid's 500-character limit.** F-Droid cuts the rest, and the 1.28.13 ones
+  ran to 871 characters. CI now fails a release whose changelog is longer in any language.
+- **New store screenshots, in all five languages.** The `en-US` set was in French, dated from
+  1.2.1-debug, and showed a real conversation. The new ones are taken from this build on an emulator,
+  with made-up contacts and messages written in each language.
+
 ## [1.28.13] — 2026-10-02
 
 What the F-Droid review found, and what refusing every permission one by one turned up next. A

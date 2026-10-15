@@ -1,0 +1,5 @@
+Wartungsversion: An der Funktionsweise der App ändert sich nichts.
+
+Die App fordert BROADCAST_WAP_PUSH nicht mehr an. Android erteilt diese Berechtigung nur dem System, die Anfrage war also wirkungslos; der MMS-Empfang bleibt unverändert.
+
+Neue Screenshots im Store-Eintrag, in allen fünf Sprachen.

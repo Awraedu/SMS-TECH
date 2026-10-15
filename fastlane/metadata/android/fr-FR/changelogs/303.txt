@@ -1,0 +1,5 @@
+Version de maintenance : rien ne change dans le fonctionnement de l'application.
+
+L'application ne demande plus BROADCAST_WAP_PUSH. Android ne l'accorde qu'au système, la demande ne servait donc à rien ; la réception des MMS ne change pas.
+
+Nouvelles captures d'écran de la fiche, dans les cinq langues.
