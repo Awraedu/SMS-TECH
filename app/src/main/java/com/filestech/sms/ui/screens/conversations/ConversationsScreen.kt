@@ -1,7 +1,10 @@
 package com.filestech.sms.ui.screens.conversations
 
+import android.annotation.SuppressLint
+import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -10,17 +13,26 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.statusBarsPadding
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.outlined.ArrowBack
-import androidx.compose.material.icons.automirrored.outlined.Reply
+import androidx.compose.material.icons.outlined.AccountCircle
 import androidx.compose.material.icons.outlined.Block
 import androidx.compose.material.icons.outlined.ChatBubbleOutline
 import androidx.compose.material.icons.outlined.Check
@@ -28,31 +40,43 @@ import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Delete
 import androidx.compose.material.icons.outlined.Edit
 import androidx.compose.material.icons.outlined.Group
+import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Inventory2
+import androidx.compose.material.icons.outlined.Link
 import androidx.compose.material.icons.outlined.Lock
-import androidx.compose.material.icons.outlined.LockOpen
+import androidx.compose.material.icons.outlined.MarkChatUnread
 import androidx.compose.material.icons.outlined.MoreVert
+import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.NotificationsOff
 import androidx.compose.material.icons.outlined.PersonAdd
+import androidx.compose.material.icons.outlined.PersonOff
+import androidx.compose.material.icons.outlined.Place
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material.icons.outlined.Search
 import androidx.compose.material.icons.outlined.SearchOff
 import androidx.compose.material.icons.outlined.Settings
+import androidx.compose.material.icons.outlined.StarOutline
 import androidx.compose.material.icons.outlined.WarningAmber
 import androidx.compose.material3.Button
 import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.ExperimentalMaterial3ExpressiveApi
+import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SearchBar
+import androidx.compose.material3.SearchBarDefaults
+import androidx.compose.material3.SegmentedListItem
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -62,32 +86,47 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.filestech.sms.R
+import com.filestech.sms.domain.model.Conversation
 import com.filestech.sms.ui.components.ContactIntents
 import com.filestech.sms.ui.components.ConversationRow
+import com.filestech.sms.ui.components.MessagesFloatingNavigation
 import com.filestech.sms.ui.components.SmsTechSnackbarHost
 import com.filestech.sms.ui.components.showError
 import kotlinx.coroutines.launch
 
-@OptIn(ExperimentalMaterial3Api::class)
+enum class SearchCategory(val label: String, val icon: ImageVector) {
+    UNREAD("Unread", Icons.Outlined.MarkChatUnread),
+    KNOWN("Known", Icons.Outlined.AccountCircle),
+    UNKNOWN("Unknown", Icons.Outlined.PersonOff),
+    STARRED("Starred", Icons.Outlined.StarOutline),
+    IMAGES("Images", Icons.Outlined.Image),
+    VIDEOS("Videos", Icons.Outlined.Movie),
+    PLACES("Places", Icons.Outlined.Place),
+    LINKS("Links", Icons.Outlined.Link),
+}
+
+@SuppressLint("LocalContextGetResourceValueCall")
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 fun ConversationsScreen(
     archived: Boolean = false,
     onOpenThread: (Long) -> Unit,
     onCompose: () -> Unit,
     onComposeGroup: () -> Unit = {},
+    onOpenContacts: () -> Unit = {},
     onOpenSettings: () -> Unit,
     onOpenVault: () -> Unit,
     onOpenArchived: () -> Unit,
@@ -97,20 +136,19 @@ fun ConversationsScreen(
     viewModel: ConversationsViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
-    // v1.26.1 (audit H18) — l'etat leurre vient du VERROU, pas du flux agrege : ce dernier
-    // resservait sa valeur en cache (`isPanicDecoy = false`) le temps de redemarrer, ce qui
-    // faisait apparaitre l'icone du Coffre en session leurre.
     val isPanicDecoy by viewModel.isPanicDecoy.collectAsStateWithLifecycle()
     val messageHits by viewModel.messageHits.collectAsStateWithLifecycle()
     val cs = MaterialTheme.colorScheme
+    val listState = rememberLazyListState()
+    val focusManager = LocalFocusManager.current
+    var selectedFilters by remember { mutableStateOf(setOf<SearchCategory>()) }
+    var searchExpanded by remember { mutableStateOf(false) }
+    var activeCategoryFilter by remember { mutableStateOf<SearchCategory?>(null) }
 
     val defaultAppLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.StartActivityForResult(),
     ) { viewModel.refreshDefaultStatus() }
 
-    // Android still treats SMS perms as runtime even for the default app. Request the bundle
-    // once we become default; the running TelephonySyncManager picks up new permissions on its
-    // next observer fire (or via the periodic worker, whichever comes first).
     val context = androidx.compose.ui.platform.LocalContext.current
     val smsPermsLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestMultiplePermissions(),
@@ -125,32 +163,16 @@ fun ConversationsScreen(
                 android.Manifest.permission.READ_CONTACTS,
             ).filter {
                 androidx.core.content.ContextCompat.checkSelfPermission(context, it) !=
-                    android.content.pm.PackageManager.PERMISSION_GRANTED
+                        android.content.pm.PackageManager.PERMISSION_GRANTED
             }
             if (needed.isNotEmpty()) {
                 smsPermsLauncher.launch(needed.toTypedArray())
             } else {
-                // v1.8.0 (fix bug S9 fresh install) — permissions déjà toutes
-                // accordées (cas du `GRANTED_BY_ROLE` automatique Android qui
-                // marche sur Pixel mais aussi sur Samsung One UI quand le rôle
-                // SMS-default vient juste d'être accordé). Sans ce `else`, le
-                // `smsPermsLauncher` n'était jamais déclenché et donc
-                // `requestSyncNow()` n'était JAMAIS appelé → l'utilisateur
-                // devait fermer/rouvrir l'app manuellement (au prochain cold-
-                // start, `MainApplication.onCreate` re-tentait `start()` avec
-                // `READ_SMS` désormais granted, et l'import démarrait enfin).
-                //
-                // En appelant `requestSyncNow()` directement ici, l'import
-                // démarre dans la foulée du grant, sans nécessiter un 2ème
-                // lancement de l'app. Mirror blocklist + filter inclus via
-                // `TelephonySyncManager.runSync` (cf. v1.8.0 fix).
                 viewModel.requestSyncNow()
             }
         }
     }
 
-    // Re-evaluate the default-SMS-app banner whenever the screen comes back to foreground.
-    // Covers the case where the user sets the default from Android Settings outside our app.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner) {
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
@@ -163,36 +185,24 @@ fun ConversationsScreen(
     }
 
     var overflowOpen by remember { mutableStateOf(false) }
-    // v1.8.0 — dialog de confirmation pour "Tout marquer comme lu".
     var showMarkAllReadConfirm by remember { mutableStateOf(false) }
 
-    // v1.25.3 — état des deux actions propres aux conversations bloquées, qui restent
-    // désormais dans la liste : suppression définitive et feuille Débloquer/Supprimer.
     var pendingDeleteBlocked by remember {
-        mutableStateOf<com.filestech.sms.domain.model.Conversation?>(null)
+        mutableStateOf<Conversation?>(null)
     }
     var blockedActionsFor by remember {
-        mutableStateOf<com.filestech.sms.domain.model.Conversation?>(null)
+        mutableStateOf<Conversation?>(null)
     }
-    // v1.11.0 — Snackbar feedback pour les déplacements Vault. Utilise
-    // SmsTechSnackbarHost (bleu marque succès / rouge erreur).
     val snackbarHost = remember { androidx.compose.material3.SnackbarHostState() }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val scope = rememberCoroutineScope()
 
-    // v1.25.3 (audit H16) — résolue ici plutôt que via `ctx.getString` dans le collecteur :
-    // `LocalContextGetResourceValueCall` rate les changements de configuration (langue, thème)
-    // parce que le `Context` capturé n'est pas relu à la recomposition.
-    // v1.28.9 — même règle pour les deux messages de suppression conservée ; le choix du texte vit
-    // dans [MessagesDErreur], l'écran étant au seuil de complexité de detekt.
     val messagesDErreur = MessagesDErreur(
         blocageEchoue = stringResource(R.string.snack_block_failed),
         suppressionCopieSysteme = stringResource(R.string.conversations_delete_vault_kept_system),
         suppressionLocale = stringResource(R.string.conversations_delete_kept_local),
     )
 
-    // Le message partiel porte des arguments connus seulement à l'exécution : on hisse le
-    // *format* ici (même raison que ci-dessus) et on l'applique dans le collecteur.
     val blockPartialFormat = stringResource(R.string.snack_block_partial)
 
     androidx.compose.runtime.LaunchedEffect(Unit) {
@@ -219,10 +229,6 @@ fun ConversationsScreen(
                         ),
                     )
                 is ConversationsViewModel.Event.IAmOkDoneWithSms -> {
-                    // v1.14.0 audit SEC-2 — différencier succès partiel vs
-                    // échec total. Si sent=0 mais failed>0, le reset a eu
-                    // lieu mais aucun contact n'a reçu le SMS → l'user doit
-                    // savoir pour relancer manuellement.
                     if (event.sent > 0) {
                         snackbarHost.showSnackbar(ctx.getString(R.string.emergency_i_am_ok_done))
                     } else {
@@ -235,20 +241,23 @@ fun ConversationsScreen(
         }
     }
 
-    // v1.13.0 — système back en mode sélection ⇒ sortir du mode sélection,
-    // pas quitter l'écran. Pattern Gmail / Google Messages : préserve l'écran.
-    androidx.activity.compose.BackHandler(enabled = state.selectionMode) {
+    // In BackHandler:
+    BackHandler(enabled = searchExpanded) {
+        if (selectedFilters.isNotEmpty()) {
+            selectedFilters = emptySet()
+        } else {
+            searchExpanded = false
+            viewModel.clearQuery()
+        }
+    }
+    BackHandler(enabled = state.selectionMode && !searchExpanded) {
         viewModel.clearSelection()
     }
 
     Scaffold(
         snackbarHost = { SmsTechSnackbarHost(snackbarHost) },
-        topBar = topBar@{
+        topBar = {
             if (state.selectionMode && !isPanicDecoy) {
-                // v1.13.0 — TopAppBar contextuelle en mode sélection : count + action
-                // "Déplacer N vers le coffre" + croix annule. Masquée en PanicDecoy
-                // (re-entry via le `combine` purge la sélection ; on dé-render aussi
-                // côté UI pour ne pas laisser un état zombie pendant la transition).
                 TopAppBar(
                     title = {
                         Text(
@@ -275,288 +284,104 @@ fun ConversationsScreen(
                             )
                         }
                     },
+                    colors = TopAppBarDefaults.topAppBarColors(containerColor = cs.surface),
                 )
-                return@topBar
             }
-            TopAppBar(
-                title = {
-                    androidx.compose.foundation.layout.Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        // Brand logo in front of the title. Hidden on the archived sub-page so the
-                        // crumb stays unambiguous (logo = home). cacheWidth equivalent: the image
-                        // is fixed at 28 dp on screen, Coil/painterResource decodes once.
-                        if (!archived) {
-                            androidx.compose.foundation.Image(
-                                painter = androidx.compose.ui.res.painterResource(id = R.drawable.ic_app_logo),
-                                contentDescription = null,
-                                modifier = Modifier
-                                    .size(28.dp)
-                                    .padding(end = 10.dp),
-                            )
-                        }
-                        Text(
-                            text = if (archived) stringResource(R.string.tab_archived)
-                            else stringResource(R.string.app_name),
-                        )
-                    }
-                },
-                navigationIcon = {
-                    onBack?.let {
-                        IconButton(onClick = it) {
-                            Icon(
-                                Icons.AutoMirrored.Outlined.ArrowBack,
-                                contentDescription = stringResource(R.string.action_back),
-                            )
-                        }
-                    }
-                },
-                actions = {
-                    if (!archived) {
-                        // Audit S-P0-1: the panic-decoy session must not expose any vault entry
-                        // point. We hide the icon entirely (rather than disable it) so the feature
-                        // looks like it doesn't exist to a coerced observer — matches the decoy
-                        // illusion. Defense in depth: the AppRoot navigation guard and the
-                        // repository-level filter back-stop this UI gate.
-                        if (!isPanicDecoy) {
-                            IconButton(onClick = onOpenVault) {
-                                Icon(
-                                    Icons.Outlined.Lock,
-                                    contentDescription = stringResource(R.string.tab_vault),
-                                )
-                            }
-                        }
-                        IconButton(onClick = onOpenArchived) {
-                            Icon(
-                                Icons.Outlined.Inventory2,
-                                contentDescription = stringResource(R.string.tab_archived),
-                            )
-                        }
-                        // v1.2.6 polish : icône Numéros bloqués retirée du topbar (redondante).
-                        // L'accès se fait via Réglages → Numéros bloqués (NavigationRow déjà câblée).
-                    }
-                    IconButton(onClick = { overflowOpen = true }) {
-                        Icon(
-                            Icons.Outlined.MoreVert,
-                            contentDescription = stringResource(R.string.action_more),
-                        )
-                    }
-                    DropdownMenu(
-                        expanded = overflowOpen,
-                        onDismissRequest = { overflowOpen = false },
-                    ) {
-                        // v1.8.0 — action "Tout marquer comme lu". Utile quand l'user a
-                        // lu ses messages dans une autre app SMS et que les badges SMS
-                        // Tech persistent (cache `messages.read` désynchronisé du système).
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Outlined.Check, contentDescription = null) },
-                            text = { Text(stringResource(R.string.action_mark_all_read)) },
-                            onClick = {
-                                overflowOpen = false
-                                showMarkAllReadConfirm = true
-                            },
-                        )
-                        // Ouvre l'éditeur de contacts du système sur un formulaire vierge
-                        // (aucun numéro de contexte à ce niveau). Feedback snackbar si aucune
-                        // app Contacts n'est installée. Partage le helper ContactIntents avec
-                        // l'écran de composition.
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Outlined.PersonAdd, contentDescription = null) },
-                            text = { Text(stringResource(R.string.action_create_contact)) },
-                            onClick = {
-                                overflowOpen = false
-                                if (!ContactIntents.createContact(ctx)) {
-                                    scope.launch {
-                                        snackbarHost.showError(ctx.getString(R.string.phone_action_no_contacts))
-                                    }
-                                }
-                            },
-                        )
-                        // v1.28.3 — créer un groupe ouvre le composeur en mode groupe : toucher
-                        // un contact y ajoute une puce au lieu d'ouvrir le fil.
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Outlined.Group, contentDescription = null) },
-                            text = { Text(stringResource(R.string.action_new_group)) },
-                            onClick = { overflowOpen = false; onComposeGroup() },
-                        )
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Outlined.Settings, contentDescription = null) },
-                            text = { Text(stringResource(R.string.settings_title)) },
-                            onClick = { overflowOpen = false; onOpenSettings() },
-                        )
-                        DropdownMenuItem(
-                            leadingIcon = { Icon(Icons.Outlined.Info, contentDescription = null) },
-                            text = { Text(stringResource(R.string.about_title)) },
-                            onClick = { overflowOpen = false; onOpenAbout() },
-                        )
-                        // Sort section. Header is a non-interactive label rendered with
-                        // `enabled = false` so the user can read it without it looking like
-                        // an action item. The 3 sort options follow with a trailing check on
-                        // the active mode.
-                        androidx.compose.material3.HorizontalDivider(
-                            modifier = Modifier.padding(vertical = 4.dp),
-                        )
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    stringResource(R.string.sort_section),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            },
-                            onClick = { },
-                            enabled = false,
-                        )
-                        SortMenuItem(
-                            label = stringResource(R.string.sort_date),
-                            selected = state.settings.conversations.sortMode == com.filestech.sms.domain.settings.SortMode.DATE,
-                            onClick = {
-                                overflowOpen = false
-                                viewModel.setSortMode(com.filestech.sms.domain.settings.SortMode.DATE)
-                            },
-                        )
-                        SortMenuItem(
-                            label = stringResource(R.string.sort_unread),
-                            selected = state.settings.conversations.sortMode == com.filestech.sms.domain.settings.SortMode.UNREAD_FIRST,
-                            onClick = {
-                                overflowOpen = false
-                                viewModel.setSortMode(com.filestech.sms.domain.settings.SortMode.UNREAD_FIRST)
-                            },
-                        )
-                    }
-                },
-            )
         },
         floatingActionButton = {
-            // v1.2.3 audit U6: use the theme's primary (which auto-adapts to Dark Tech /
-            // Material You / Light) rather than a hardcoded blue that desaturated wrong on
-            // the deep-slate Dark Tech palette.
-            FloatingActionButton(
-                onClick = onCompose,
-                containerColor = MaterialTheme.colorScheme.primary,
-                contentColor = MaterialTheme.colorScheme.onPrimary,
-            ) {
-                Icon(
-                    Icons.Outlined.Edit,
-                    contentDescription = stringResource(R.string.action_new_message),
-                )
+            if (!state.selectionMode && !searchExpanded) {
+                FloatingActionButton(
+                    onClick = onCompose,
+                    containerColor = MaterialTheme.colorScheme.primary,
+                    contentColor = MaterialTheme.colorScheme.onPrimary,
+                    shape = RoundedCornerShape(18.dp),
+                ) {
+                    Icon(
+                        Icons.Outlined.Edit,
+                        contentDescription = stringResource(R.string.action_new_message),
+                    )
+                }
             }
         },
     ) { padding ->
-        Column(modifier = Modifier.fillMaxSize().padding(padding)) {
-            SearchField(
-                // v1.27.9 — état Compose lu directement : la frappe doit revenir au champ dans
-                // la MÊME recomposition (cf. [ConversationsViewModel.searchInput]). `state.query`
-                // arrivait après le debounce de 200 ms et réécrivait le champ avec du périmé.
-                query = viewModel.searchInput,
-                onQueryChange = viewModel::setQuery,
-                onClear = viewModel::clearQuery,
-            )
-            if (!state.isDefaultSmsApp && !archived) {
-                DefaultAppBanner(onSetDefault = {
-                    viewModel.buildChangeDefaultIntent()?.let { intent ->
-                        defaultAppLauncher.launch(intent)
-                    }
-                })
-                HorizontalDivider()
-            }
-            // v1.14.0 — Chip "Je vais bien" si déclenchement urgence < 30 min.
-            //
-            // ⚠️ v1.28.12 — le `&& !isPanicDecoy` n'est PAS redondant, et son absence était le
-            // défaut le plus grave de cet écran.
-            //
-            // `state.showIAmOkChip` porte bien `!isPanic`, mais il vient du flux AGRÉGÉ, servi
-            // par `stateIn(WhileSubscribed(5 s))`. Quand l'écran de verrouillage se dépile,
-            // cette valeur EN CACHE — calculée avant le verrouillage, donc avec
-            // `isPanicDecoy = false` — est resservie le temps que le `combine` (requête
-            // SQLCipher + appel Binder, `flowOn(io)`) réémette.
-            //
-            // C'est EXACTEMENT le mécanisme que l'audit H18 (v1.26.1) a corrigé pour l'icône du
-            // Coffre, en dérivant [ConversationsViewModel.isPanicDecoy] directement du verrou,
-            // `Eagerly` — son KDoc le décrit mot pour mot. Le correctif a été posé sur ce seul
-            // champ ; le bandeau est resté sur le flux agrégé. Six autres endroits de cet écran
-            // gardent déjà sur la valeur fraîche (lignes 247, 321, 551, 559, 576) : celui-ci
-            // était le septième, et le seul oublié.
-            //
-            // Ce qu'il coûtait : une victime déclenche l'urgence, les SMS partent, on lui prend
-            // le téléphone et on la force à saisir le code panique. Le bandeau « Je vais bien »
-            // s'affiche — et l'agresseur apprend qu'un appel à l'aide vient d'être envoyé.
-            // L'icône du Coffre révélait qu'un coffre existe ; celui-ci révèle l'alerte.
-            BandeauJeVaisBien(
-                visible = state.showIAmOkChip && !isPanicDecoy,
-                onConfirmer = viewModel::triggerIAmOk,
-            )
-            // v1.23.x — noms de contact partagés par ≥2 conversations : le numéro n'est affiché
-            // sous le nom que pour celles-là. v1.28.3 (audit global C-03) — calculé dans le
-            // ViewModel, sur IO, avec le filtre et le tri.
-            val duplicateDisplayNames = state.duplicateDisplayNames
+        val (activeConversations, blockedConversations) =
+            state.conversations.partition { !it.blocked }
+        val duplicateDisplayNames = state.duplicateDisplayNames
+
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = padding.calculateTopPadding()),
+        ) {
+            val statusBarTop = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+            val listTopPadding = if (!state.selectionMode) statusBarTop + 68.dp else 8.dp
+
             when {
                 state.isImporting -> ImportingPlaceholder(count = state.importedCount)
                 state.isLoading -> Unit
-                state.sansAucunResultat(messageHits) -> EmptyState(
+                state.sansAucunResultat(messageHits) && !searchExpanded -> EmptyState(
                     archived = archived,
                     filtered = state.filtered,
                     onCompose = onCompose,
                 )
                 else -> LazyColumn(
+                    state = listState,
                     modifier = Modifier.fillMaxSize(),
-                    contentPadding = PaddingValues(bottom = 96.dp),
+                    contentPadding = PaddingValues(
+                        start = 16.dp,
+                        end = 16.dp,
+                        top = listTopPadding,
+                        bottom = 112.dp,
+                    ),
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
                 ) {
-                    // Audit PERF-L4 (v1.14.8) — Couleur divider extraite hors loop pour éviter
-                    // l'allocation `Color.copy(alpha=...)` à chaque recomposition d'item. Sur une
-                    // liste de 200 conv qui se met à jour à chaque SMS entrant, on évite ~200
-                    // allocations Color/frame → moindre pression GC sur low-end.
-                    val dividerColor = cs.outlineVariant.copy(alpha = 0.4f)
+                    if (!state.isDefaultSmsApp && !archived) {
+                        item(key = "banner-default-app") {
+                            DefaultAppBanner(onSetDefault = {
+                                viewModel.buildChangeDefaultIntent()?.let { intent ->
+                                    defaultAppLauncher.launch(intent)
+                                }
+                            })
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
 
-                    // v1.25.3 — les conversations dont tous les numéros sont bloqués ne sont plus
-                    // ni supprimées ni masquées : elles descendent en fin de liste sous un
-                    // en-tête dédié. Le tri d'origine est conservé à l'intérieur de chaque groupe
-                    // (`partition` est stable), donc rien ne bouge pour qui n'a rien bloqué.
-                    val (activeConversations, blockedConversations) =
-                        state.conversations.partition { !it.blocked }
+                    if (state.showIAmOkChip && !isPanicDecoy) {
+                        item(key = "banner-iamok") {
+                            BandeauJeVaisBien(
+                                visible = true,
+                                onConfirmer = viewModel::triggerIAmOk,
+                            )
+                            Spacer(Modifier.height(8.dp))
+                        }
+                    }
 
-                    items(
+                    itemsIndexed(
                         activeConversations,
-                        key = { it.id },
-                        // Audit PERF-M2 (v1.14.8) — `contentType` stable indique au recycleur
-                        // que toutes les rows partagent le même layout. Sans ce hint, Compose
-                        // ne peut pas optimiser le recyclage entre rows sélectionnés / non-sél.
-                        contentType = { "row" },
-                    ) { conv ->
+                        key = { _, it -> it.id },
+                        contentType = { _, _ -> "row" },
+                    ) { index, conv ->
                         val isSelected = state.selectedIds.contains(conv.id)
-                        // v1.23.x — numéro affiché sous le nom seulement si ce nom est ambigu
-                        // (partagé par ≥2 conversations) et que la conversation est 1-to-1.
                         val rowSubtitleNumber = conv.displayName
                             ?.takeIf { it in duplicateDisplayNames && conv.addresses.size == 1 }
                             ?.let { conv.addresses.firstOrNull()?.raw }
                         SwipeableConversationRow(
                             conversation = conv,
+                            index = index,
+                            count = activeConversations.size,
                             subtitleNumber = rowSubtitleNumber,
                             showAvatars = state.settings.conversations.showAvatars,
                             previewLines = state.settings.conversations.previewLines.coerceIn(1, 2),
-                            // v1.13.0 — en mode sélection, tap = toggle de l'item, pas
-                            // ouverture du thread. Hors mode sélection, comportement
-                            // normal. Le swipe est désactivé en mode sélection pour
-                            // éviter les conflits de gestes.
                             onOpenThread = {
                                 if (state.selectionMode) viewModel.toggleSelection(conv.id)
                                 else onOpenThread(conv.id)
                             },
                             onDelete = { viewModel.delete(conv.id) },
                             onBlock = { viewModel.block(conv) },
-                            // v1.11.0 — Trou #2 Vault polish : callback passé
-                            // UNIQUEMENT hors PanicDecoy. L'item de menu n'apparaît
-                            // donc pas en session decoy (cohérent avec masquage
-                            // de l'icône cadenas top-bar). Désactivé aussi en mode
-                            // sélection (l'action passe par la TopAppBar bulk).
+                            onArchive = { viewModel.toggleArchived(conv) },
                             onMoveToVault = if (isPanicDecoy || state.selectionMode) null else {
                                 { viewModel.moveConversationToVault(conv.id) }
                             },
-                            // v1.26.1 (audit F1) — mêmes conditions que le coffre : masqués en
-                            // mode leurre et en mode sélection. Les trois gestes sont portés par
-                            // UN SEUL objet nullable plutôt que par trois `if` séparés : une
-                            // seule décision au lieu de trois identiques, et la complexité
-                            // cyclomatique de cet écran reste sous le seuil du projet.
                             rowActions = if (isPanicDecoy || state.selectionMode) {
                                 null
                             } else {
@@ -567,80 +392,517 @@ fun ConversationsScreen(
                                     onRename = { nom -> viewModel.rename(conv, nom) },
                                 )
                             },
-                            // v1.13.1 — restaure ActionsSheet legacy en long-press
-                            // (quick actions Block/Delete/Move to vault). Ajoute en
-                            // plus l'option "Sélectionner plusieurs" qui entre en
-                            // mode sélection multi. Hors mode sélection seulement
-                            // (en mode sélection le long-press toggle, comportement
-                            // Gmail). PanicDecoy : pas de selection toggle non plus,
-                            // l'ActionsSheet legacy sans item Vault est rendu.
                             onSelectMultiple = if (isPanicDecoy) null else {
                                 { viewModel.toggleSelection(conv.id) }
                             },
                             selected = isSelected,
                             selectionMode = state.selectionMode,
                         )
-                        HorizontalDivider(color = dividerColor)
                     }
 
                     if (blockedConversations.isNotEmpty()) {
                         item(key = "header-blocked", contentType = "header") {
                             Text(
                                 text = stringResource(R.string.conversations_section_blocked),
-                                style = MaterialTheme.typography.titleSmall,
+                                style = MaterialTheme.typography.labelLarge,
                                 color = com.filestech.sms.ui.theme.BrandBlocked,
                                 modifier = Modifier.padding(
-                                    start = 16.dp,
-                                    end = 16.dp,
+                                    start = 4.dp,
+                                    end = 4.dp,
                                     top = 20.dp,
-                                    bottom = 6.dp,
+                                    bottom = 8.dp,
                                 ),
                             )
                         }
-                        items(
+                        itemsIndexed(
                             blockedConversations,
-                            key = { it.id },
-                            contentType = { "blocked-row" },
-                        ) { conv ->
-                            // Ligne simple, sans balayage : le geste de balayage sert à répondre
-                            // et à supprimer sur une conversation active. Sur une bloquée, les
-                            // deux actions utiles sont explicites — corbeille rouge ici,
-                            // « Débloquer » dans la feuille d'appui long.
+                            key = { _, it -> it.id },
+                            contentType = { _, _ -> "blocked-row" },
+                        ) { index, conv ->
                             ConversationRow(
                                 conversation = conv,
+                                index = index,
+                                count = blockedConversations.size,
                                 showAvatars = state.settings.conversations.showAvatars,
-                                previewLines = state.settings.conversations.previewLines
-                                    .coerceIn(1, 2),
-                                // v1.25.3 — les lignes bloquées ne participent PAS au mode
-                                // sélection : elles utilisent `ConversationRow` nu, sans l'état
-                                // visuel de sélection de `SwipeableConversationRow`. Les y
-                                // inclure permettrait de sélectionner sans le voir, et une
-                                // action groupée porterait sur des fils invisiblement cochés.
-                                // Elles ont leurs deux actions propres, explicites.
+                                previewLines = state.settings.conversations.previewLines.coerceIn(1, 2),
                                 onClick = { onOpenThread(conv.id) },
                                 onLongClick = { blockedActionsFor = conv },
                                 onDelete = { pendingDeleteBlocked = conv },
                             )
-                            HorizontalDivider(color = dividerColor)
                         }
                     }
 
-                    // v1.28.8 (issue #17) — les messages dont le TEXTE correspond, sous les
-                    // conversations.
                     messageHitsSection(
                         hits = messageHits,
                         showAvatars = state.settings.conversations.showAvatars,
                         selectionMode = state.selectionMode,
-                        dividerColor = dividerColor,
+                        dividerColor = cs.outlineVariant.copy(alpha = 0.2f),
                         onOpenThread = onOpenThread,
                     )
                 }
             }
+
+            // Material 3 Expandable SearchBar
+            if (!state.selectionMode) {
+                val searchHorizontalPadding by animateDpAsState(
+                    targetValue = if (searchExpanded) 0.dp else 16.dp,
+                    label = "searchBarPadding",
+                )
+
+                SearchBar(
+                    inputField = {
+                        SearchBarDefaults.InputField(
+                            query = viewModel.searchInput,
+                            onQueryChange = {
+                                activeCategoryFilter = null
+                                viewModel.setQuery(it)
+                            },
+                            onSearch = { focusManager.clearFocus() },
+                            expanded = searchExpanded,
+                            onExpandedChange = { searchExpanded = it },
+                            placeholder = {
+                                Text(
+                                    text = if (archived) stringResource(R.string.tab_archived)
+                                    else stringResource(R.string.conversations_search_hint),
+                                )
+                            },
+                            leadingIcon = {
+                                if (searchExpanded) {
+                                    IconButton(onClick = {
+                                        searchExpanded = false
+                                        activeCategoryFilter = null
+                                        viewModel.clearQuery()
+                                    }) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                            contentDescription = stringResource(R.string.action_back),
+                                        )
+                                    }
+                                } else if (archived && onBack != null) {
+                                    IconButton(onClick = onBack) {
+                                        Icon(
+                                            imageVector = Icons.AutoMirrored.Outlined.ArrowBack,
+                                            contentDescription = stringResource(R.string.action_back),
+                                        )
+                                    }
+                                } else {
+                                    Icon(
+                                        imageVector = Icons.Outlined.Search,
+                                        contentDescription = null,
+                                        tint = cs.onSurfaceVariant,
+                                    )
+                                }
+                            },
+                            trailingIcon = {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    if (viewModel.searchInput.isNotEmpty() || selectedFilters.isNotEmpty()) {
+                                        IconButton(onClick = {
+                                            selectedFilters = emptySet()
+                                            viewModel.clearQuery()
+                                        }) {
+                                            Icon(
+                                                imageVector = Icons.Outlined.Close,
+                                                contentDescription = stringResource(R.string.action_close),
+                                            )
+                                        }
+                                    }
+
+                                    if (!searchExpanded) {
+                                        Box {
+                                            IconButton(onClick = { overflowOpen = true }) {
+                                                Icon(
+                                                    imageVector = Icons.Outlined.MoreVert,
+                                                    contentDescription = stringResource(R.string.action_more),
+                                                    tint = cs.onSurfaceVariant,
+                                                )
+                                            }
+
+                                            // Popover menu
+                                            DropdownMenu(
+                                                expanded = overflowOpen,
+                                                onDismissRequest = { overflowOpen = false },
+                                                containerColor = Color.Transparent,
+                                                shadowElevation = 0.dp,
+                                                tonalElevation = 0.dp,
+                                                border = null,
+                                                modifier = Modifier.widthIn(min = 230.dp, max = 270.dp),
+                                            ) {
+                                                val primaryActions = remember(archived, isPanicDecoy, viewModel.searchInput, selectedFilters) {
+                                                    val isSearching = viewModel.searchInput.isNotBlank() || selectedFilters.isNotEmpty()
+                                                    buildList {
+                                                        if (!archived) {
+                                                            if (!isPanicDecoy) {
+                                                                add(Triple(Icons.Outlined.Lock, R.string.tab_vault, onOpenVault))
+                                                            }
+                                                            add(Triple(Icons.Outlined.Inventory2, R.string.tab_archived, onOpenArchived))
+                                                        }
+                                                        if (!isSearching) {
+                                                            add(Triple(Icons.Outlined.Check, R.string.action_mark_all_read) {
+                                                                showMarkAllReadConfirm = true
+                                                            })
+                                                        }
+                                                        add(Triple(Icons.Outlined.PersonAdd, R.string.action_create_contact) {
+                                                            if (!ContactIntents.createContact(ctx)) {
+                                                                scope.launch {
+                                                                    snackbarHost.showError(ctx.getString(R.string.phone_action_no_contacts))
+                                                                }
+                                                            }
+                                                        })
+                                                        add(Triple(Icons.Outlined.Group, R.string.action_new_group, onComposeGroup))
+                                                        add(Triple(Icons.Outlined.Settings, R.string.settings_title, onOpenSettings))
+                                                        add(Triple(Icons.Outlined.Info, R.string.about_title, onOpenAbout))
+                                                    }
+                                                }
+
+                                                Column(
+                                                    modifier = Modifier
+                                                        .fillMaxWidth()
+                                                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                                                ) {
+                                                    Column(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                                                    ) {
+                                                        primaryActions.forEachIndexed { index, (icon, titleRes, action) ->
+                                                            SegmentedListItem(
+                                                                onClick = {
+                                                                    overflowOpen = false
+                                                                    action()
+                                                                },
+                                                                shapes = ListItemDefaults.segmentedShapes(
+                                                                    index = index,
+                                                                    count = primaryActions.size,
+                                                                ),
+                                                                colors = ListItemDefaults.segmentedColors(
+                                                                    containerColor = cs.surfaceContainerHigh,
+                                                                ),
+                                                                leadingContent = {
+                                                                    Icon(
+                                                                        imageVector = icon,
+                                                                        contentDescription = null,
+                                                                        tint = cs.onSurfaceVariant,
+                                                                        modifier = Modifier.size(20.dp),
+                                                                    )
+                                                                },
+                                                                content = {
+                                                                    Text(
+                                                                        text = stringResource(titleRes),
+                                                                        style = MaterialTheme.typography.bodyMedium.copy(
+                                                                            fontWeight = FontWeight.Medium,
+                                                                        ),
+                                                                        color = cs.onSurface,
+                                                                    )
+                                                                },
+                                                                contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                                                modifier = Modifier.fillMaxWidth(),
+                                                            )
+                                                        }
+                                                    }
+
+                                                    Text(
+                                                        text = stringResource(R.string.sort_section).uppercase(),
+                                                        style = MaterialTheme.typography.labelSmall.copy(
+                                                            fontWeight = FontWeight.Bold,
+                                                            letterSpacing = 0.8.sp,
+                                                        ),
+                                                        color = cs.onSurfaceVariant,
+                                                        modifier = Modifier.padding(start = 12.dp, top = 10.dp, bottom = 4.dp),
+                                                    )
+
+                                                    val isDateSelected = state.settings.conversations.sortMode == com.filestech.sms.domain.settings.SortMode.DATE
+                                                    val isUnreadSelected = state.settings.conversations.sortMode == com.filestech.sms.domain.settings.SortMode.UNREAD_FIRST
+
+                                                    Column(
+                                                        modifier = Modifier.fillMaxWidth(),
+                                                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                                                    ) {
+                                                        SegmentedListItem(
+                                                            onClick = {
+                                                                overflowOpen = false
+                                                                viewModel.setSortMode(com.filestech.sms.domain.settings.SortMode.DATE)
+                                                            },
+                                                            shapes = ListItemDefaults.segmentedShapes(index = 0, count = 2),
+                                                            colors = ListItemDefaults.segmentedColors(
+                                                                containerColor = if (isDateSelected) cs.secondaryContainer
+                                                                else cs.surfaceContainerHigh,
+                                                            ),
+                                                            leadingContent = {
+                                                                if (isDateSelected) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Outlined.Check,
+                                                                        contentDescription = null,
+                                                                        tint = cs.onSecondaryContainer,
+                                                                        modifier = Modifier.size(18.dp),
+                                                                    )
+                                                                } else {
+                                                                    Spacer(modifier = Modifier.size(18.dp))
+                                                                }
+                                                            },
+                                                            content = {
+                                                                Text(
+                                                                    text = stringResource(R.string.sort_date),
+                                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                                        fontWeight = if (isDateSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                    ),
+                                                                    color = if (isDateSelected) cs.onSecondaryContainer else cs.onSurface,
+                                                                )
+                                                            },
+                                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                        )
+
+                                                        SegmentedListItem(
+                                                            onClick = {
+                                                                overflowOpen = false
+                                                                viewModel.setSortMode(com.filestech.sms.domain.settings.SortMode.UNREAD_FIRST)
+                                                            },
+                                                            shapes = ListItemDefaults.segmentedShapes(index = 1, count = 2),
+                                                            colors = ListItemDefaults.segmentedColors(
+                                                                containerColor = if (isUnreadSelected) cs.secondaryContainer
+                                                                else cs.surfaceContainerHigh,
+                                                            ),
+                                                            leadingContent = {
+                                                                if (isUnreadSelected) {
+                                                                    Icon(
+                                                                        imageVector = Icons.Outlined.Check,
+                                                                        contentDescription = null,
+                                                                        tint = cs.onSecondaryContainer,
+                                                                        modifier = Modifier.size(18.dp),
+                                                                    )
+                                                                } else {
+                                                                    Spacer(modifier = Modifier.size(18.dp))
+                                                                }
+                                                            },
+                                                            content = {
+                                                                Text(
+                                                                    text = stringResource(R.string.sort_unread),
+                                                                    style = MaterialTheme.typography.bodyMedium.copy(
+                                                                        fontWeight = if (isUnreadSelected) FontWeight.Bold else FontWeight.Normal,
+                                                                    ),
+                                                                    color = if (isUnreadSelected) cs.onSecondaryContainer else cs.onSurface,
+                                                                )
+                                                            },
+                                                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 10.dp),
+                                                            modifier = Modifier.fillMaxWidth(),
+                                                        )
+                                                    }
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                            },
+                        )
+                    },
+                    expanded = searchExpanded,
+                    onExpandedChange = { searchExpanded = it },
+                    modifier = Modifier
+                        .align(Alignment.TopCenter)
+                        .then(if (!searchExpanded) Modifier.statusBarsPadding() else Modifier)
+                        .padding(horizontal = searchHorizontalPadding)
+                        .padding(bottom = if (searchExpanded) 0.dp else 8.dp),
+                    colors = SearchBarDefaults.colors(
+                        containerColor = cs.surfaceContainerHigh,
+                    ),
+                    shadowElevation = if (searchExpanded) 0.dp else 6.dp,
+                ) {
+                    // Full-screen search content
+                    val filteredConversations = remember(selectedFilters, viewModel.searchInput, activeConversations) {
+                        var list = activeConversations
+
+                        if (SearchCategory.UNREAD in selectedFilters) {
+                            list = list.filter { it.unreadCount > 0 }
+                        }
+                        if (SearchCategory.KNOWN in selectedFilters) {
+                            list = list.filter { !it.displayName.isNullOrBlank() }
+                        }
+                        if (SearchCategory.UNKNOWN in selectedFilters) {
+                            list = list.filter { it.displayName.isNullOrBlank() }
+                        }
+                        if (SearchCategory.STARRED in selectedFilters) {
+                            list = list.filter { it.pinned }
+                        }
+                        if (SearchCategory.IMAGES in selectedFilters) {
+                            list = list.filter {
+                                it.lastMessagePreview?.contains("image", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("photo", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("mms", ignoreCase = true) == true
+                            }
+                        }
+                        if (SearchCategory.VIDEOS in selectedFilters) {
+                            list = list.filter {
+                                it.lastMessagePreview?.contains("video", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("movie", ignoreCase = true) == true
+                            }
+                        }
+                        if (SearchCategory.PLACES in selectedFilters) {
+                            list = list.filter {
+                                it.lastMessagePreview?.contains("maps.google", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("location", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("place", ignoreCase = true) == true
+                            }
+                        }
+                        if (SearchCategory.LINKS in selectedFilters) {
+                            list = list.filter {
+                                it.lastMessagePreview?.contains("http://", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("https://", ignoreCase = true) == true ||
+                                        it.lastMessagePreview?.contains("www.", ignoreCase = true) == true
+                            }
+                        }
+
+                        val query = viewModel.searchInput.trim()
+                        if (query.isNotEmpty()) {
+                            list = list.filter { conv ->
+                                conv.title.contains(query, ignoreCase = true) ||
+                                        conv.lastMessagePreview?.contains(query, ignoreCase = true) == true ||
+                                        conv.addresses.any { it.raw.contains(query) }
+                            }
+                        }
+
+                        list
+                    }
+
+
+                    LazyColumn(
+                        modifier = Modifier.fillMaxSize(),
+                        contentPadding = PaddingValues(start = 16.dp, end = 16.dp, bottom = 24.dp),
+                        verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                    ) {
+                        item(key = "search-filter-grid") {
+                            SearchFilterGrid(
+                                selectedCategories = selectedFilters,
+                                onToggleCategory = { category ->
+                                    selectedFilters = if (category in selectedFilters) {
+                                        selectedFilters - category
+                                    } else {
+                                        selectedFilters + category
+                                    }
+                                },
+                            )
+                        }
+
+                        if (selectedFilters.isEmpty() && viewModel.searchInput.isBlank()) {
+                            item(key = "search-hint") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 100.dp, bottom = 60.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.conversations_search_hint),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = cs.onSurfaceVariant.copy(alpha = 0.6f),
+                                    )
+                                }
+                            }
+                        } else if (filteredConversations.isEmpty() && state.sansAucunResultat(messageHits)) {
+                            item(key = "search-no-match") {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .padding(top = 100.dp, bottom = 60.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.conversations_no_match),
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = cs.onSurfaceVariant,
+                                    )
+                                }
+                            }
+                        } else {
+                            itemsIndexed(
+                                filteredConversations,
+                                key = { _, it -> "search-conv-${it.id}" },
+                            ) { index, conv ->
+                                val rowSubtitleNumber = conv.displayName
+                                    ?.takeIf { it in duplicateDisplayNames && conv.addresses.size == 1 }
+                                    ?.let { conv.addresses.firstOrNull()?.raw }
+
+                                val isSelected = state.selectedIds.contains(conv.id)
+                                SwipeableConversationRow(
+                                    conversation = conv,
+                                    index = index,
+                                    count = filteredConversations.size,
+                                    subtitleNumber = rowSubtitleNumber,
+                                    showAvatars = state.settings.conversations.showAvatars,
+                                    previewLines = 2,
+                                    onOpenThread = {
+                                        if (state.selectionMode) {
+                                            viewModel.toggleSelection(conv.id)
+                                        } else {
+                                            searchExpanded = false
+                                            selectedFilters = emptySet()
+                                            onOpenThread(conv.id)
+                                        }
+                                    },
+                                    onDelete = { viewModel.delete(conv.id) },
+                                    onBlock = { viewModel.block(conv) },
+                                    onArchive = { viewModel.toggleArchived(conv) },
+                                    onMoveToVault = if (isPanicDecoy || state.selectionMode) null else {
+                                        { viewModel.moveConversationToVault(conv.id) }
+                                    },
+                                    rowActions = if (isPanicDecoy || state.selectionMode) {
+                                        null
+                                    } else {
+                                        ConversationRowActions(
+                                            onTogglePin = { viewModel.togglePinned(conv) },
+                                            onToggleArchive = { viewModel.toggleArchived(conv) },
+                                            onToggleMute = { viewModel.toggleMuted(conv) },
+                                            onRename = { nom -> viewModel.rename(conv, nom) },
+                                        )
+                                    },
+                                    onSelectMultiple = if (isPanicDecoy) null else {
+                                        { viewModel.toggleSelection(conv.id) }
+                                    },
+                                    selected = isSelected,
+                                    selectionMode = state.selectionMode,
+                                )
+                            }
+
+                            if (viewModel.searchInput.isNotBlank()) {
+                                messageHitsSection(
+                                    hits = messageHits,
+                                    showAvatars = state.settings.conversations.showAvatars,
+                                    selectionMode = false,
+                                    dividerColor = cs.outlineVariant.copy(alpha = 0.2f),
+                                    onOpenThread = { id ->
+                                        searchExpanded = false
+                                        selectedFilters = emptySet()
+                                        onOpenThread(id)
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Floating Bottom Navigation
+            if (!archived && !state.selectionMode && !searchExpanded) {
+                val unreadCount = remember(state.conversations) {
+                    state.conversations.count { it.unreadCount > 0 }
+                }
+                MessagesFloatingNavigation(
+                    selectedIndex = 0,
+                    onItemSelected = { index ->
+                        if (index == 0) {
+                            scope.launch { listState.animateScrollToItem(0) }
+                        } else if (index == 1) {
+                            onOpenContacts()
+                        }
+                    },
+                    unreadConversations = unreadCount,
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .navigationBarsPadding()
+                        .padding(bottom = 12.dp),
+                )
+            }
         }
     }
 
-    // v1.25.3 — dialogues propres aux conversations bloquées, extraits pour garder
-    // [ConversationsScreen] sous le seuil de complexité cyclomatique de detekt.
     BlockedConversationDialogs(
         pendingDelete = pendingDeleteBlocked,
         actionsFor = blockedActionsFor,
@@ -651,9 +913,6 @@ fun ConversationsScreen(
         onRequestDelete = { conv -> blockedActionsFor = null; pendingDeleteBlocked = conv },
     )
 
-    // v1.8.0 — Dialog de confirmation pour "Tout marquer comme lu".
-    // Action non destructive, dialog simple (pas d'autofocus complexe — c'est
-    // de l'UX, pas une action irreversible).
     if (showMarkAllReadConfirm) {
         androidx.compose.material3.AlertDialog(
             onDismissRequest = { showMarkAllReadConfirm = false },
@@ -676,218 +935,117 @@ fun ConversationsScreen(
     }
 }
 
+/**
+ * 2-Column Search Category Filter Grid supporting multi-selection and animated pill morphing.
+ */
 @Composable
-private fun SearchField(
-    query: String,
-    onQueryChange: (String) -> Unit,
-    onClear: () -> Unit,
+private fun SearchFilterGrid(
+    selectedCategories: Set<SearchCategory>,
+    onToggleCategory: (SearchCategory) -> Unit,
+    modifier: Modifier = Modifier,
 ) {
-    OutlinedTextField(
-        value = query,
-        onValueChange = onQueryChange,
-        modifier = Modifier.fillMaxWidth().padding(horizontal = 12.dp, vertical = 8.dp),
-        placeholder = { Text(stringResource(R.string.conversations_search_hint)) },
-        leadingIcon = { Icon(Icons.Outlined.Search, contentDescription = null) },
-        trailingIcon = {
-            if (query.isNotEmpty()) {
-                IconButton(onClick = onClear) {
-                    Icon(
-                        Icons.Outlined.Close,
-                        contentDescription = stringResource(R.string.action_close),
+    val items = remember { SearchCategory.entries }
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .padding(vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        items.chunked(2).forEach { rowItems ->
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                rowItems.forEach { item ->
+                    val isSelected = item in selectedCategories
+                    SearchFilterPill(
+                        category = item,
+                        isSelected = isSelected,
+                        onClick = { onToggleCategory(item) },
+                        modifier = Modifier.weight(1f),
                     )
                 }
             }
-        },
-        singleLine = true,
-        keyboardOptions = androidx.compose.foundation.text.KeyboardOptions(imeAction = ImeAction.Search),
-    )
+        }
+    }
 }
 
-/**
- * v1.14.0 — bandeau "Vous avez déclenché une alerte récemment / Je vais bien".
- * Affiché sur [ConversationsScreen] pendant 30 min post-trigger (visibilité
- * gérée côté ViewModel via `showIAmOkChip`). Tap → confirm dialog → reset
- * cooldown + (optionnel) SMS "Je vais bien" aux contacts SafetyCall.
- *
- * Style aligné sur [DefaultAppBanner] : `surfaceContainer` neutre, icône
- * Warning amber (rappel visuel : "tu as appuyé sur urgence"), bouton
- * primary "Je vais bien" pour confirmer reset.
- */
 @Composable
-private fun IAmOkBanner(onClick: () -> Unit) {
+private fun SearchFilterPill(
+    category: SearchCategory,
+    isSelected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
     val cs = MaterialTheme.colorScheme
-    // Audit A11Y-M4 (v1.14.8) — `mergeDescendants` + `contentDescription` sur le conteneur :
-    // TalkBack annonce une SEULE entité sémantique cohérente ("Alerte urgence déclenchée
-    // récemment, Je vais bien") au lieu d'enchaîner icône (silencieuse) + texte + bouton.
-    // Critique sur un flow d'urgence : l'user en situation de stress doit comprendre la zone
-    // au premier coup d'audition TalkBack.
-    val a11yTitle = stringResource(R.string.emergency_i_am_ok_chip_title)
-    val a11yAction = stringResource(R.string.emergency_i_am_ok_chip_action)
-    androidx.compose.material3.Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        color = cs.surfaceContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp)
-            .semantics(mergeDescendants = true) {
-                contentDescription = "$a11yTitle. $a11yAction"
-            },
+
+    // Smoothly animate the corner radius to a full pill shape when selected
+    val animatedRadius by androidx.compose.animation.core.animateDpAsState(
+        targetValue = if (isSelected) 28.dp else 16.dp,
+        animationSpec = androidx.compose.animation.core.tween(durationMillis = 240),
+        label = "pillCornerMorph",
+    )
+
+    // Distinct lighter surface when unselected, secondaryContainer when selected
+    val cardBackground = if (isSelected) {
+        cs.surfaceBright
+    } else {
+        cs.secondaryContainer
+    }
+
+    val contentColor = if (isSelected) cs.onSecondaryContainer else cs.onSurfaceVariant
+    val iconTint = if (isSelected) cs.onSecondaryContainer else cs.onSurface
+
+    Surface(
+        shape = RoundedCornerShape(animatedRadius),
+        color = cardBackground,
+        shadowElevation = if (isSelected) 2.dp else 1.dp,
+        modifier = modifier
+            .height(54.dp)
+            .clip(RoundedCornerShape(animatedRadius))
+            .clickable(onClick = onClick),
     ) {
         Row(
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 16.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Icon(
-                imageVector = Icons.Outlined.WarningAmber,
+                imageVector = category.icon,
                 contentDescription = null,
-                tint = com.filestech.sms.ui.theme.BrandDanger,
+                tint = iconTint,
                 modifier = Modifier.size(22.dp),
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
+            Spacer(modifier = Modifier.width(14.dp))
             Text(
-                text = stringResource(R.string.emergency_i_am_ok_chip_title),
-                style = MaterialTheme.typography.bodyMedium,
-                color = cs.onSurface,
-                modifier = Modifier.weight(1f),
+                text = category.label,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                color = contentColor,
             )
-            androidx.compose.foundation.layout.Spacer(Modifier.size(8.dp))
-            androidx.compose.material3.FilledTonalButton(
-                onClick = onClick,
-                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
-                    containerColor = cs.primary,
-                    contentColor = cs.onPrimary,
-                ),
-            ) { Text(stringResource(R.string.emergency_i_am_ok_chip_action)) }
         }
     }
 }
 
-/**
- * Soft "set me as default" banner rendered above the list when the app is not yet the system
- * default SMS handler. Information nudge — not a failure — so we paint it in the brand-blue
- * family (`primaryContainer` + `primary`) instead of error red. The lighter container alpha
- * keeps the line visible without competing with the conversation list below.
- */
-/**
- * v1.28.12 — extrait de [ConversationsScreen], qui atteignait le plafond de complexite du
- * projet. L'extraction n'est pas cosmetique : elle place la garde [visible] a UN seul endroit,
- * la ou l'ancienne forme la laissait au milieu de quarante branches.
- *
- * ⚠️ [visible] doit porter la garde du mode leurre, et pas seulement `state.showIAmOkChip`.
- * Ce champ vient du flux AGREGE, servi par `stateIn(WhileSubscribed(5 s))` : au depilement de
- * l'ecran de verrouillage, sa valeur EN CACHE — calculee avant, donc avec `isPanicDecoy = false`
- * — est resservie le temps que le `combine` reemette.
- *
- * C'est le mecanisme que l'audit H18 (v1.26.1) a corrige pour l'icone du Coffre, en derivant
- * `isPanicDecoy` directement du verrou, `Eagerly`. Le correctif n'avait ete pose que sur ce
- * champ ; ce bandeau etait reste sur le flux agrege, et il est le plus grave des deux : l'icone
- * revele qu'un coffre existe, celui-ci revele qu'un appel a l'aide vient de partir — a
- * quelqu'un qui tient le telephone par la contrainte. Releve le 2026-09-17.
- */
-@Composable
-private fun BandeauJeVaisBien(visible: Boolean, onConfirmer: () -> Unit) {
-    if (!visible) return
-    var confirmationOuverte by remember { mutableStateOf(false) }
-    IAmOkBanner(onClick = { confirmationOuverte = true })
-    HorizontalDivider()
-    if (!confirmationOuverte) return
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = { confirmationOuverte = false },
-        title = { Text(stringResource(R.string.emergency_i_am_ok_confirm_title)) },
-        text = { Text(stringResource(R.string.emergency_i_am_ok_confirm_body)) },
-        confirmButton = {
-            Button(onClick = {
-                confirmationOuverte = false
-                onConfirmer()
-            }) { Text(stringResource(R.string.emergency_i_am_ok_chip_action)) }
-        },
-        dismissButton = {
-            androidx.compose.material3.TextButton(
-                onClick = { confirmationOuverte = false },
-            ) { Text(stringResource(R.string.action_cancel)) }
-        },
-    )
-}
-
-@Composable
-private fun DefaultAppBanner(onSetDefault: () -> Unit) {
-    val cs = MaterialTheme.colorScheme
-    // v1.2.3 audit U13: dropping the 0.55 alpha — composited over the dark surface of Dark
-    // Tech it could fall below 4.5:1 contrast for the body text. Material 3 `surfaceContainer`
-    // is the native "subtle tint" surface and stays consistent across schemes.
-    androidx.compose.material3.Surface(
-        shape = androidx.compose.foundation.shape.RoundedCornerShape(16.dp),
-        color = cs.surfaceContainer,
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 12.dp, vertical = 8.dp),
-    ) {
-        // v1.27.12 — le bouton est passe SOUS le texte, au lieu d'etre a cote.
-        //
-        // Il etait dans un `Row` a cote d'un `Text` en `weight(1f)`. Or Compose mesure les
-        // enfants SANS poids en premier : le bouton prenait toute sa largeur intrinseque et le
-        // texte heritait de ce qui restait. Constate sur un Redmi 9C (720x1600 en densite 320,
-        // soit 360 dp de large) avec `font_scale` a 1,33 — un reglage d'accessibilite courant :
-        // le message s'affichait sur une colonne de sept caracteres, coupant « l'applica / tion »
-        // au milieu d'un mot. Reproduit a l'identique sur un S9 force aux memes dimensions.
-        //
-        // L'empilement vaut a toutes les tailles de police et toutes les largeurs, sans seuil a
-        // deviner. C'est aussi ce que prescrit Material pour un bandeau dont le texte depasse une
-        // ligne — et celui-ci la depasse deja en francais sur un ecran ordinaire.
-        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    imageVector = Icons.Outlined.Info,
-                    contentDescription = null,
-                    tint = cs.primary,
-                    modifier = Modifier.size(22.dp),
-                )
-                androidx.compose.foundation.layout.Spacer(Modifier.size(12.dp))
-                Text(
-                    text = stringResource(R.string.error_not_default_app),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = cs.onSurface,
-                    modifier = Modifier.weight(1f),
-                )
-            }
-            androidx.compose.foundation.layout.Spacer(Modifier.size(10.dp))
-            androidx.compose.material3.FilledTonalButton(
-                onClick = onSetDefault,
-                modifier = Modifier.align(Alignment.End),
-                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
-                    containerColor = cs.primary,
-                    contentColor = cs.onPrimary,
-                ),
-            ) { Text(stringResource(R.string.settings_set_default)) }
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun SwipeableConversationRow(
-    conversation: com.filestech.sms.domain.model.Conversation,
+    conversation: Conversation,
+    index: Int = 0,
+    count: Int = 1,
     subtitleNumber: String? = null,
     showAvatars: Boolean,
     previewLines: Int,
     onOpenThread: () -> Unit,
     onDelete: () -> Unit,
     onBlock: () -> Unit,
+    onArchive: () -> Unit,
     onMoveToVault: (() -> Unit)? = null,
-    /**
-     * v1.13.1 — callback "entrer en mode sélection multiple" exposé comme item
-     * dans l'ActionsSheet legacy long-press. Non-null hors PanicDecoy. Restaure
-     * le pattern "appui long → menu" attendu en v1.12, sans perdre le multi.
-     */
     onSelectMultiple: (() -> Unit)? = null,
-    /**
-     * v1.26.1 (audit F1) — épingler / archiver / sourdine. `null` en mode leurre : l'agresseur
-     * ne doit pas pouvoir réorganiser ni faire taire les conversations de la victime.
-     */
     rowActions: ConversationRowActions? = null,
-    /** v1.13.0 — visuel sélectionné (background tinted + check icon). */
     selected: Boolean = false,
-    /** v1.13.0 — désactive le swipe et le menu legacy en mode sélection. */
     selectionMode: Boolean = false,
 ) {
     val cs = MaterialTheme.colorScheme
@@ -895,32 +1053,17 @@ private fun SwipeableConversationRow(
     var pendingDelete by remember { mutableStateOf(false) }
     var pendingBlock by remember { mutableStateOf(false) }
     var actionsSheetOpen by remember { mutableStateOf(false) }
-    // v1.28.3 — nommer le groupe depuis l'appui long.
     var renameOpen by remember { mutableStateOf(false) }
-    // v1.23.2 — verrou one-shot du swipe gauche. `confirmValueChange` N'EST PAS un callback
-    // « une fois à la validation » : foundation l'invoque à CHAQUE frame de drag une fois passé
-    // la moitié de la distance vers l'ancre voisine (AnchoredDragScope.dragTo → updateIfNeeded),
-    // puis encore pendant le fling (SnapLayoutInfoProvider.calculateSnapOffset) et pendant
-    // l'animation de retour (anchoredDrag). Sans verrou, un seul swipe empilait N destinations
-    // Thread(id) identiques : chaque retour en dépilait une et réaffichait le même écran, d'où
-    // le « le retour ne marche qu'au bout de 3-4 essais ». Le verrou est réarmé dès que la row
-    // est revenue au repos (cf. LaunchedEffect ci-dessous).
-    var swipeOpenConsumed by remember { mutableStateOf(false) }
+
     val dismissState = androidx.compose.material3.rememberSwipeToDismissBoxState(
         confirmValueChange = { target ->
             when (target) {
                 androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd -> {
-                    // Swipe right → ask for confirmation, do not dismiss yet.
-                    // Idempotent : le multi-appel décrit ci-dessus est sans effet ici.
                     pendingDelete = true
                     false
                 }
                 androidx.compose.material3.SwipeToDismissBoxValue.EndToStart -> {
-                    // Swipe left → open thread (= reply). Snap back.
-                    if (!swipeOpenConsumed) {
-                        swipeOpenConsumed = true
-                        onOpenThread()
-                    }
+                    onArchive()
                     false
                 }
                 androidx.compose.material3.SwipeToDismissBoxValue.Settled -> false
@@ -928,29 +1071,21 @@ private fun SwipeableConversationRow(
         },
         positionalThreshold = { distance -> distance * 0.35f },
     )
-    // v1.23.2 — réarmement du verrou : `currentValue` ne bouge jamais (on veto toujours), donc
-    // on observe `targetValue`, qui redevient Settled quand l'offset est revenu à zéro.
-    androidx.compose.runtime.LaunchedEffect(dismissState.targetValue) {
-        if (dismissState.targetValue == androidx.compose.material3.SwipeToDismissBoxValue.Settled) {
-            swipeOpenConsumed = false
-        }
-    }
+
+    val segmentedShapes = ListItemDefaults.segmentedShapes(index = index, count = count)
 
     androidx.compose.material3.SwipeToDismissBox(
         state = dismissState,
-        // v1.13.0 — swipe désactivé en mode sélection (cohérent avec absence
-        // d'ActionsSheet sur long-press et avec le pattern Gmail / Messages).
         enableDismissFromStartToEnd = !selectionMode,
         enableDismissFromEndToStart = !selectionMode,
+        modifier = Modifier.clip(segmentedShapes.shape),
         backgroundContent = {
-            // v1.2.3 audit U6: use the brand/error tokens so swipe backgrounds adapt to the
-            // current theme. Hardcoded 0xFFC62828 / 0xFF1565C0 broke on Dark Tech.
             val dir = dismissState.dismissDirection
             val (bg, icon, align) = when (dir) {
                 androidx.compose.material3.SwipeToDismissBoxValue.StartToEnd ->
                     Triple(com.filestech.sms.ui.theme.BrandDanger, Icons.Outlined.Delete, Alignment.CenterStart)
                 androidx.compose.material3.SwipeToDismissBoxValue.EndToStart ->
-                    Triple(cs.primary, Icons.AutoMirrored.Outlined.Reply, Alignment.CenterEnd)
+                    Triple(cs.secondary, Icons.Outlined.Inventory2, Alignment.CenterEnd)
                 else -> Triple(cs.surface, Icons.Outlined.Delete, Alignment.Center)
             }
             Box(
@@ -964,44 +1099,38 @@ private fun SwipeableConversationRow(
                     Icon(
                         imageVector = icon,
                         contentDescription = null,
-                        tint = androidx.compose.ui.graphics.Color.White,
+                        tint = Color.White,
                     )
                 }
             }
         },
     ) {
-        // v1.13.0 — background `primaryContainer.copy(alpha=.35f)` quand
-        // sélectionné. Subtil mais lisible WCAG AA face au `onSurface` du
-        // texte (le `primaryContainer` est déjà un ton clair sur thème clair
-        // et un ton sombre sur thème sombre ; α=0.35 préserve la lisibilité).
-        val rowBg = if (selected) cs.primaryContainer.copy(alpha = 0.35f) else cs.surface
-        androidx.compose.foundation.layout.Box(modifier = Modifier.background(rowBg)) {
+        Box {
             ConversationRow(
                 conversation = conversation,
+                index = index,
+                count = count,
+                shapes = segmentedShapes,
+                colors = ListItemDefaults.segmentedColors(
+                    containerColor = if (selected) cs.primaryContainer.copy(alpha = 0.5f)
+                    else cs.surfaceContainerLow,
+                ),
                 subtitleNumber = subtitleNumber,
                 onClick = onOpenThread,
                 showAvatars = showAvatars,
                 previewLines = previewLines,
-                // v1.13.1 — long-press routing :
-                //  - en mode sélection multiple → toggle de l'item (pattern Gmail).
-                //  - sinon → ActionsSheet legacy (Block/Delete/Move to vault +
-                //    "Sélectionner plusieurs" si onSelectMultiple non-null).
-                // Haptic pulse dans les deux cas (Material guideline).
                 onLongClick = {
                     haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.LongPress)
                     if (selectionMode && onSelectMultiple != null) onSelectMultiple()
                     else actionsSheetOpen = true
                 },
             )
-            // v1.13.0 — check icon en overlay quand sélectionné. Placé en bas-
-            // droite pour ne pas masquer l'avatar ; tinté `primary` pour lisibilité
-            // sur le background sélectionné.
             if (selected) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterEnd)
                         .padding(end = 16.dp)
-                        .size(28.dp)
+                        .size(26.dp)
                         .clip(CircleShape)
                         .background(cs.primary),
                     contentAlignment = Alignment.Center,
@@ -1010,7 +1139,7 @@ private fun SwipeableConversationRow(
                         imageVector = Icons.Outlined.Check,
                         contentDescription = stringResource(R.string.selected),
                         tint = cs.onPrimary,
-                        modifier = Modifier.size(18.dp),
+                        modifier = Modifier.size(16.dp),
                     )
                 }
             }
@@ -1028,31 +1157,24 @@ private fun SwipeableConversationRow(
                 actionsSheetOpen = false
                 pendingDelete = true
             },
-            // v1.11.0 — null en PanicDecoy (le parent ne passe pas le callback)
-            // → l'item de menu "Déplacer vers le coffre" n'apparaît pas.
             onMoveToVaultRequested = onMoveToVault?.let { handler ->
                 {
                     actionsSheetOpen = false
                     handler()
                 }
             },
-            // v1.13.1 — item "Sélectionner plusieurs" qui entre en mode sélection
-            // multi. null en PanicDecoy (le sélection-mode TopAppBar est aussi
-            // masquée en decoy, cohérence cross-écran).
             onSelectMultipleRequested = onSelectMultiple?.let { handler ->
                 {
                     actionsSheetOpen = false
                     handler()
                 }
             },
-            // v1.28.3 — renommer, sur un groupe seulement, et hors mode leurre comme les autres.
             onRenameRequested = rowActions?.takeIf { conversation.isGroup }?.let {
                 {
                     actionsSheetOpen = false
                     renameOpen = true
                 }
             },
-            // v1.26.1 (audit F1) — état courant + gestes. `null` en mode leurre, via le parent.
             pinned = conversation.pinned,
             archived = conversation.archived,
             muted = conversation.muted,
@@ -1099,11 +1221,9 @@ private fun SwipeableConversationRow(
                         pendingDelete = false
                         onDelete()
                     },
-                    // v1.2.5: solid BrandDanger fill + white text — `errorContainer` is pastel
-                    // pink in light theme and didn't read as a destructive action.
                     colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
                         containerColor = com.filestech.sms.ui.theme.BrandDanger,
-                        contentColor = androidx.compose.ui.graphics.Color.White,
+                        contentColor = Color.White,
                     ),
                 ) { Text(stringResource(R.string.action_delete)) }
             },
@@ -1126,16 +1246,6 @@ private fun SwipeableConversationRow(
                         pendingBlock = false
                         onBlock()
                     },
-                    // v1.25.3 — orange « blocage ». Volontairement PAS le rouge destructif : ce
-                    // geste se défait, contrairement à la suppression.
-                    //
-                    // 🔴 v1.27.4 — LE LIBELLÉ N'EST PLUS ÉCRIT EN DUR, IL EST CALCULÉ.
-                    //
-                    // Il était `Color.White`, « parce que le KDoc de BrandBlocked affirmait
-                    // 4,87:1 ». Ce chiffre était FAUX : blanc sur #E65100 donne **3,79:1**, sous le
-                    // seuil AA de 4,5:1 — et un libellé de bouton en 14sp medium est bien du texte
-                    // normal. Le noir donne **5,54:1**. Voir [onBrandContainer], qui explique
-                    // pourquoi passer au noir *en dur* aurait cassé le jumeau rouge.
                     colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
                         containerColor = com.filestech.sms.ui.theme.BrandBlocked,
                         contentColor = com.filestech.sms.ui.theme.onBrandContainer(
@@ -1152,7 +1262,6 @@ private fun SwipeableConversationRow(
         )
     }
 
-    // Snap back to settled whenever the dialog closes or after a left-swipe-to-reply.
     androidx.compose.runtime.LaunchedEffect(pendingDelete, pendingBlock, dismissState.currentValue) {
         if (!pendingDelete && !pendingBlock &&
             dismissState.currentValue != androidx.compose.material3.SwipeToDismissBoxValue.Settled
@@ -1162,30 +1271,15 @@ private fun SwipeableConversationRow(
     }
 }
 
-/**
- * v1.26.1 (audit F1) — les trois gestes d'organisation d'une conversation, portés ensemble.
- *
- * Regroupés dans un seul objet nullable plutôt qu'en trois paramètres nullables indépendants :
- * ils partagent exactement la même condition d'existence (ni mode leurre, ni mode sélection),
- * donc trois `if` séparés auraient répété la même décision — et fait franchir à l'écran le seuil
- * de complexité cyclomatique du projet.
- */
-@androidx.compose.runtime.Stable
-class ConversationRowActions(
-    val onTogglePin: () -> Unit,
-    val onToggleArchive: () -> Unit,
-    val onToggleMute: () -> Unit,
-    /** v1.28.3 — nom choisi (brut) d'un groupe ; normalisé plus bas. */
-    val onRename: (String?) -> Unit,
+private data class SheetActionItem(
+    val titleRes: Int,
+    val icon: ImageVector,
+    val tint: Color? = null,
+    val isDestructive: Boolean = false,
+    val onClick: () -> Unit,
 )
 
-/**
- * Bottom-sheet menu shown on long-press of a conversation row. Surfaces the actions that were
- * previously buried in nested dialogs (Block) alongside the destructive one (Delete). Each
- * choice routes back through the parent's confirm flow so destructive intents still go through
- * a 2-step confirmation.
- */
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalMaterial3ExpressiveApi::class)
 @Composable
 private fun ConversationActionsSheet(
     onDismiss: () -> Unit,
@@ -1193,10 +1287,7 @@ private fun ConversationActionsSheet(
     onDeleteRequested: () -> Unit,
     onMoveToVaultRequested: (() -> Unit)? = null,
     onSelectMultipleRequested: (() -> Unit)? = null,
-    /** v1.28.3 — « Renommer le groupe », `null` hors groupe ou en mode leurre. */
     onRenameRequested: (() -> Unit)? = null,
-    // v1.26.1 (audit F1) — état courant pour choisir le libellé, et gestes correspondants.
-    // Les six chaînes existaient déjà, traduites FR+EN, sans aucun référent.
     pinned: Boolean = false,
     archived: Boolean = false,
     muted: Boolean = false,
@@ -1206,6 +1297,93 @@ private fun ConversationActionsSheet(
 ) {
     val cs = MaterialTheme.colorScheme
     val sheetState = androidx.compose.material3.rememberModalBottomSheetState(skipPartiallyExpanded = true)
+
+    val standardActions = remember(
+        onMoveToVaultRequested,
+        onRenameRequested,
+        onTogglePinRequested,
+        onToggleArchiveRequested,
+        onToggleMuteRequested,
+        onSelectMultipleRequested,
+        pinned,
+        archived,
+        muted,
+    ) {
+        buildList {
+            if (onMoveToVaultRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = R.string.vault_move_in,
+                        icon = Icons.Outlined.Lock,
+                        onClick = onMoveToVaultRequested,
+                    )
+                )
+            }
+            if (onRenameRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = R.string.action_rename_group,
+                        icon = Icons.Outlined.Edit,
+                        onClick = onRenameRequested,
+                    )
+                )
+            }
+            if (onTogglePinRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = if (pinned) R.string.action_unpin else R.string.action_pin,
+                        icon = Icons.Outlined.PushPin,
+                        onClick = onTogglePinRequested,
+                    )
+                )
+            }
+            if (onToggleArchiveRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = if (archived) R.string.action_unarchive else R.string.action_archive,
+                        icon = Icons.Outlined.Inventory2,
+                        onClick = onToggleArchiveRequested,
+                    )
+                )
+            }
+            if (onToggleMuteRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = if (muted) R.string.action_unmute else R.string.action_mute,
+                        icon = Icons.Outlined.NotificationsOff,
+                        onClick = onToggleMuteRequested,
+                    )
+                )
+            }
+            if (onSelectMultipleRequested != null) {
+                add(
+                    SheetActionItem(
+                        titleRes = R.string.bulk_select_multiple,
+                        icon = Icons.Outlined.Check,
+                        onClick = onSelectMultipleRequested,
+                    )
+                )
+            }
+        }
+    }
+
+    val dangerActions = remember(onBlockRequested, onDeleteRequested) {
+        listOf(
+            SheetActionItem(
+                titleRes = R.string.action_block,
+                icon = Icons.Outlined.Block,
+                tint = com.filestech.sms.ui.theme.BrandBlocked,
+                onClick = onBlockRequested,
+            ),
+            SheetActionItem(
+                titleRes = R.string.action_delete,
+                icon = Icons.Outlined.Delete,
+                isDestructive = true,
+                onClick = onDeleteRequested,
+            ),
+        )
+    }
+
     androidx.compose.material3.ModalBottomSheet(
         onDismissRequest = onDismiss,
         sheetState = sheetState,
@@ -1214,122 +1392,193 @@ private fun ConversationActionsSheet(
             modifier = Modifier
                 .fillMaxWidth()
                 .navigationBarsPadding()
-                .padding(bottom = 12.dp),
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 20.dp),
         ) {
             Text(
                 text = stringResource(R.string.conversation_actions_title),
-                style = MaterialTheme.typography.titleSmall,
-                color = cs.onSurfaceVariant,
-                modifier = Modifier.padding(horizontal = 24.dp, vertical = 12.dp),
+                style = MaterialTheme.typography.titleMedium.copy(fontWeight = FontWeight.SemiBold),
+                color = cs.onSurface,
+                modifier = Modifier.padding(horizontal = 8.dp, vertical = 12.dp),
             )
-            // v1.11.0 — Trou #2 Vault polish : action "Déplacer vers le coffre"
-            // exposée dans le menu long-press. Visible UNIQUEMENT hors PanicDecoy
-            // (le caller passe `null` en decoy pour ne pas révéler l'existence du
-            // coffre à un agresseur — défense en profondeur sur le guard VaultManager
-            // qui refuse aussi côté domain).
-            if (onMoveToVaultRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = { Icon(Icons.Outlined.Lock, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.vault_move_in)) },
-                    modifier = Modifier.clickable(onClick = onMoveToVaultRequested),
-                )
-            }
-            if (onRenameRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = { Icon(Icons.Outlined.Edit, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.action_rename_group)) },
-                    modifier = Modifier.clickable(onClick = onRenameRequested),
-                )
-            }
-            // v1.26.1 (audit F1) — épingler / archiver / sourdine. Placés avant les gestes
-            // marquants (bloquer, supprimer) : ce sont des actions réversibles et fréquentes.
-            // Les callbacks sont nullables sur le même modèle que le coffre : `null` en mode
-            // leurre, pour ne pas offrir de prise sur l'organisation des conversations.
-            if (onTogglePinRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = {
-                        Icon(Icons.Outlined.PushPin, contentDescription = null)
-                    },
-                    headlineContent = {
-                        Text(
-                            stringResource(
-                                if (pinned) R.string.action_unpin else R.string.action_pin,
+
+            if (standardActions.isNotEmpty()) {
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+                ) {
+                    standardActions.forEachIndexed { index, item ->
+                        SegmentedListItem(
+                            onClick = item.onClick,
+                            shapes = ListItemDefaults.segmentedShapes(index = index, count = standardActions.size),
+                            colors = ListItemDefaults.segmentedColors(
+                                containerColor = cs.surfaceContainerLow,
                             ),
+                            leadingContent = {
+                                Icon(
+                                    imageVector = item.icon,
+                                    contentDescription = null,
+                                    tint = cs.onSurfaceVariant,
+                                )
+                            },
+                            content = {
+                                Text(
+                                    text = stringResource(item.titleRes),
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = cs.onSurface,
+                                )
+                            },
                         )
-                    },
-                    modifier = Modifier.clickable(onClick = onTogglePinRequested),
-                )
+                    }
+                }
+                Spacer(modifier = Modifier.height(10.dp))
             }
-            if (onToggleArchiveRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = {
-                        Icon(Icons.Outlined.Inventory2, contentDescription = null)
-                    },
-                    headlineContent = {
-                        Text(
-                            stringResource(
-                                if (archived) R.string.action_unarchive else R.string.action_archive,
-                            ),
-                        )
-                    },
-                    modifier = Modifier.clickable(onClick = onToggleArchiveRequested),
-                )
-            }
-            if (onToggleMuteRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = {
-                        Icon(Icons.Outlined.NotificationsOff, contentDescription = null)
-                    },
-                    headlineContent = {
-                        Text(
-                            stringResource(
-                                if (muted) R.string.action_unmute else R.string.action_mute,
-                            ),
-                        )
-                    },
-                    modifier = Modifier.clickable(onClick = onToggleMuteRequested),
-                )
-            }
-            // v1.13.1 — entrée mode sélection multiple via long-press menu.
-            if (onSelectMultipleRequested != null) {
-                androidx.compose.material3.ListItem(
-                    leadingContent = { Icon(Icons.Outlined.Check, contentDescription = null) },
-                    headlineContent = { Text(stringResource(R.string.bulk_select_multiple)) },
-                    modifier = Modifier.clickable(onClick = onSelectMultipleRequested),
-                )
-            }
-            // v1.25.3 — « Bloquer » en rouge, comme « Supprimer » juste en dessous et comme le
-            // dialogue de confirmation du fil. Le blocage ne détruit plus rien, mais il reste un
-            // geste marquant : il coupe la réception et sort la conversation du flux courant.
-            androidx.compose.material3.ListItem(
-                leadingContent = {
-                    Icon(
-                        Icons.Outlined.Block,
-                        contentDescription = null,
-                        tint = com.filestech.sms.ui.theme.BrandBlocked,
+
+            Column(
+                verticalArrangement = Arrangement.spacedBy(ListItemDefaults.SegmentedGap),
+            ) {
+                dangerActions.forEachIndexed { index, item ->
+                    val itemColor = item.tint ?: if (item.isDestructive) cs.error else cs.onSurface
+                    SegmentedListItem(
+                        onClick = item.onClick,
+                        shapes = ListItemDefaults.segmentedShapes(index = index, count = dangerActions.size),
+                        colors = ListItemDefaults.segmentedColors(
+                            containerColor = cs.surfaceContainerLow,
+                        ),
+                        leadingContent = {
+                            Icon(
+                                imageVector = item.icon,
+                                contentDescription = null,
+                                tint = itemColor,
+                            )
+                        },
+                        content = {
+                            Text(
+                                text = stringResource(item.titleRes),
+                                style = MaterialTheme.typography.bodyLarge.copy(
+                                    fontWeight = if (item.isDestructive) FontWeight.SemiBold else FontWeight.Normal,
+                                ),
+                                color = itemColor,
+                            )
+                        },
                     )
-                },
-                headlineContent = {
-                    Text(
-                        text = stringResource(R.string.action_block),
-                        color = com.filestech.sms.ui.theme.BrandBlocked,
-                    )
-                },
-                modifier = Modifier.clickable(onClick = onBlockRequested),
+                }
+            }
+        }
+    }
+}
+
+@androidx.compose.runtime.Stable
+class ConversationRowActions(
+    val onTogglePin: () -> Unit,
+    val onToggleArchive: () -> Unit,
+    val onToggleMute: () -> Unit,
+    val onRename: (String?) -> Unit,
+)
+
+@Composable
+private fun BandeauJeVaisBien(visible: Boolean, onConfirmer: () -> Unit) {
+    if (!visible) return
+    var confirmationOuverte by remember { mutableStateOf(false) }
+    IAmOkBanner(onClick = { confirmationOuverte = true })
+    HorizontalDivider()
+    if (!confirmationOuverte) return
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = { confirmationOuverte = false },
+        title = { Text(stringResource(R.string.emergency_i_am_ok_confirm_title)) },
+        text = { Text(stringResource(R.string.emergency_i_am_ok_confirm_body)) },
+        confirmButton = {
+            Button(onClick = {
+                confirmationOuverte = false
+                onConfirmer()
+            }) { Text(stringResource(R.string.emergency_i_am_ok_chip_action)) }
+        },
+        dismissButton = {
+            androidx.compose.material3.TextButton(
+                onClick = { confirmationOuverte = false },
+            ) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
+}
+
+@Composable
+private fun IAmOkBanner(onClick: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    val a11yTitle = stringResource(R.string.emergency_i_am_ok_chip_title)
+    val a11yAction = stringResource(R.string.emergency_i_am_ok_chip_action)
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = cs.surfaceContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .semantics(mergeDescendants = true) {
+                contentDescription = "$a11yTitle. $a11yAction"
+            },
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Icon(
+                imageVector = Icons.Outlined.WarningAmber,
+                contentDescription = null,
+                tint = com.filestech.sms.ui.theme.BrandDanger,
+                modifier = Modifier.size(22.dp),
             )
-            androidx.compose.material3.ListItem(
-                leadingContent = {
-                    Icon(
-                        Icons.Outlined.Delete,
-                        contentDescription = null,
-                        tint = cs.error,
-                    )
-                },
-                headlineContent = {
-                    Text(stringResource(R.string.action_delete), color = cs.error)
-                },
-                modifier = Modifier.clickable(onClick = onDeleteRequested),
+            Spacer(Modifier.size(12.dp))
+            Text(
+                text = stringResource(R.string.emergency_i_am_ok_chip_title),
+                style = MaterialTheme.typography.bodyMedium,
+                color = cs.onSurface,
+                modifier = Modifier.weight(1f),
             )
+            Spacer(Modifier.size(8.dp))
+            androidx.compose.material3.FilledTonalButton(
+                onClick = onClick,
+                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                    containerColor = cs.primary,
+                    contentColor = cs.onPrimary,
+                ),
+            ) { Text(stringResource(R.string.emergency_i_am_ok_chip_action)) }
+        }
+    }
+}
+
+@Composable
+private fun DefaultAppBanner(onSetDefault: () -> Unit) {
+    val cs = MaterialTheme.colorScheme
+    androidx.compose.material3.Surface(
+        shape = RoundedCornerShape(16.dp),
+        color = cs.surfaceContainer,
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp),
+    ) {
+        Column(modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = Icons.Outlined.Info,
+                    contentDescription = null,
+                    tint = cs.primary,
+                    modifier = Modifier.size(22.dp),
+                )
+                Spacer(Modifier.size(12.dp))
+                Text(
+                    text = stringResource(R.string.error_not_default_app),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = cs.onSurface,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            Spacer(Modifier.size(10.dp))
+            androidx.compose.material3.FilledTonalButton(
+                onClick = onSetDefault,
+                modifier = Modifier.align(Alignment.End),
+                colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
+                    containerColor = cs.primary,
+                    contentColor = cs.onPrimary,
+                ),
+            ) { Text(stringResource(R.string.settings_set_default)) }
         }
     }
 }
@@ -1342,10 +1591,7 @@ private fun ImportingPlaceholder(count: Int) {
         verticalArrangement = Arrangement.Center,
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        androidx.compose.material3.CircularProgressIndicator(
-            color = cs.primary,
-            strokeWidth = 3.dp,
-        )
+        androidx.compose.material3.CircularProgressIndicator(color = cs.primary, strokeWidth = 3.dp)
         Text(
             text = stringResource(R.string.conversations_importing_title),
             style = MaterialTheme.typography.titleMedium,
@@ -1353,11 +1599,8 @@ private fun ImportingPlaceholder(count: Int) {
             modifier = Modifier.padding(top = 24.dp),
         )
         Text(
-            text = if (count > 0) {
-                stringResource(R.string.conversations_importing_count, count)
-            } else {
-                stringResource(R.string.conversations_importing_body)
-            },
+            text = if (count > 0) stringResource(R.string.conversations_importing_count, count)
+            else stringResource(R.string.conversations_importing_body),
             style = MaterialTheme.typography.bodyMedium,
             color = cs.onSurfaceVariant,
             modifier = Modifier.padding(top = 6.dp),
@@ -1365,11 +1608,6 @@ private fun ImportingPlaceholder(count: Int) {
     }
 }
 
-/**
- * Empty-state hero: a halo (soft 6 % primary disc) wrapping a primaryContainer-tinted emblem
- * with an outlined icon picked from the user's context (search, archive, chat). Centered title
- * + supportive body underneath. Replaces the previous two-line text dump.
- */
 @Composable
 private fun EmptyState(archived: Boolean, filtered: Boolean, onCompose: () -> Unit) {
     val cs = MaterialTheme.colorScheme
@@ -1384,14 +1622,12 @@ private fun EmptyState(archived: Boolean, filtered: Boolean, onCompose: () -> Un
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(contentAlignment = Alignment.Center) {
-            // Outer halo — soft glow ring.
             Box(
                 modifier = Modifier
                     .size(128.dp)
                     .clip(CircleShape)
                     .background(cs.primary.copy(alpha = 0.06f)),
             )
-            // Inner emblem — primary container disc holding the icon.
             Box(
                 modifier = Modifier
                     .size(96.dp)
@@ -1426,9 +1662,6 @@ private fun EmptyState(archived: Boolean, filtered: Boolean, onCompose: () -> Un
                 color = cs.onSurfaceVariant,
                 textAlign = TextAlign.Center,
             )
-            // v1.2.3 audit U7: empty state previously had no action button, leaving a fresh
-            // user with nothing to click. The bottom-right FAB exists but is easy to miss on a
-            // mostly-empty screen. Inline CTA mirrors what Notes Tech v1.0.9 shipped (U9).
             Spacer(Modifier.size(20.dp))
             androidx.compose.material3.FilledTonalButton(onClick = onCompose) {
                 Icon(
@@ -1443,56 +1676,16 @@ private fun EmptyState(archived: Boolean, filtered: Boolean, onCompose: () -> Un
     }
 }
 
-/**
- * Sort-picker entry inside the overflow menu. Renders a leading check mark on the currently
- * active mode so the user sees the current state at a glance — no separate dialog, no extra tap.
- */
-@Composable
-private fun SortMenuItem(label: String, selected: Boolean, onClick: () -> Unit) {
-    val haptic = androidx.compose.ui.platform.LocalHapticFeedback.current
-    // v1.2.3 audit U22: Semantics expose the radio-button role + selected state so TalkBack
-    // reads "Date, sélectionné" instead of just "Date". U14: short haptic when the user
-    // changes the sort mode (Material guideline for state-change feedback).
-    DropdownMenuItem(
-        leadingIcon = {
-            if (selected) {
-                Icon(Icons.Outlined.Check, contentDescription = null)
-            } else {
-                Spacer(Modifier.size(24.dp))
-            }
-        },
-        text = { Text(label) },
-        onClick = {
-            haptic.performHapticFeedback(androidx.compose.ui.hapticfeedback.HapticFeedbackType.TextHandleMove)
-            onClick()
-        },
-        modifier = Modifier.semantics {
-            this.selected = selected
-            role = Role.RadioButton
-            contentDescription = label
-        },
-    )
-}
-
-/**
- * v1.25.3 — les deux dialogues qui n'existent que pour une conversation bloquée : suppression
- * définitive (corbeille rouge de la ligne) et choix Débloquer / Supprimer (appui long).
- *
- * Extraits de [ConversationsScreen] : leur ajout y faisait franchir le seuil de complexité
- * cyclomatique, et ils forment de toute façon une unité cohérente.
- */
 @Composable
 private fun BlockedConversationDialogs(
-    pendingDelete: com.filestech.sms.domain.model.Conversation?,
-    actionsFor: com.filestech.sms.domain.model.Conversation?,
+    pendingDelete: Conversation?,
+    actionsFor: Conversation?,
     onDismissDelete: () -> Unit,
     onDismissActions: () -> Unit,
     onConfirmDelete: (Long) -> Unit,
-    onUnblock: (com.filestech.sms.domain.model.Conversation) -> Unit,
-    onRequestDelete: (com.filestech.sms.domain.model.Conversation) -> Unit,
+    onUnblock: (Conversation) -> Unit,
+    onRequestDelete: (Conversation) -> Unit,
 ) {
-    // Confirmation obligatoire : c'est le seul geste de cet écran qui efface réellement des
-    // messages, de Room ET du fournisseur système.
     pendingDelete?.let { conv ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = onDismissDelete,
@@ -1503,7 +1696,7 @@ private fun BlockedConversationDialogs(
                     onClick = { onConfirmDelete(conv.id) },
                     colors = androidx.compose.material3.ButtonDefaults.filledTonalButtonColors(
                         containerColor = com.filestech.sms.ui.theme.BrandDanger,
-                        contentColor = androidx.compose.ui.graphics.Color.White,
+                        contentColor = Color.White,
                     ),
                 ) { Text(stringResource(R.string.action_delete)) }
             },
@@ -1515,8 +1708,6 @@ private fun BlockedConversationDialogs(
         )
     }
 
-    // « Bloquer » n'aurait aucun sens ici, la conversation l'est déjà : on propose le geste
-    // réparateur (débloquer) et le geste assumé (supprimer).
     actionsFor?.let { conv ->
         androidx.compose.material3.AlertDialog(
             onDismissRequest = onDismissActions,

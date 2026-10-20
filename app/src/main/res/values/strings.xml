@@ -120,7 +120,7 @@
     <string name="group_renamed">Group renamed</string>
     <string name="group_avatar_cd">Group</string>
     <string name="action_call">Call</string>
-    <string name="conversations_search_hint">Search a number, a contact, a message…</string>
+    <string name="conversations_search_hint">Search message…</string>
     <string name="conversations_no_match">No matching conversation.</string>
     <string name="thread_create_contact">Create a contact</string>
     <string name="thread_update_contact">Update a contact</string>
